@@ -2,6 +2,7 @@ package akyuu
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,13 +13,23 @@ import (
 	"github.com/go-martini/martini"
 )
 
-func BuildRoutes(m *martini.ClassicMartini, fsClient *FsClient) {
-	m.Map(fsClient)
+func BuildRoutes(m *martini.ClassicMartini) {
+	// functions hidden behind tokens
+	m.Group("/api", func(apiRouter martini.Router) {
+		apiRouter.Group("/upload", func(uploadRouter martini.Router) {
+			uploadRouter.Post("/i", verifyFileImageEndpoint, receiveFile)
+		}, bindIncomingFile)
 
-	m.Group("/upload", func(uploadRouter martini.Router) {
-		uploadRouter.Post("/i", verifyFileImageEndpoint, receiveFile)
-	}, bindIncomingFile)
+		apiRouter.Group("/token", func(tokenRouter martini.Router) {
+			tokenRouter.Get("/?", listTokens)
+			tokenRouter.Get("/:id", getToken)
+			tokenRouter.Get("/active", listActiveTokens)
+			tokenRouter.Post("/:name", createToken)
+			tokenRouter.Post("/deactivate/:id", deactivateToken)
+		}, verifyIssuerToken)
+	}, verifyToken)
 
+	// file serving/public access
 	m.Group("/f", func(downloadRouter martini.Router) {
 		downloadRouter.Get("/i/:id", getImage)
 	})
@@ -86,4 +97,81 @@ func getFile(w http.ResponseWriter, params martini.Params, fsClient *FsClient, e
 
 func getImage(w http.ResponseWriter, params martini.Params, fsClient *FsClient) {
 	getFile(w, params, fsClient, FileTypeImage)
+}
+
+func verifyToken(c martini.Context, w http.ResponseWriter, r *http.Request, tokenReg *TokenReg) {
+	tokenKey := r.Header.Get(TokenHeaderKey)
+	token, present := tokenReg.VerifyToken(TokenId(tokenKey))
+	if !present {
+		// TODO audit token failure
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	if !tokenReg.VerifyValidIssuer(token) {
+		// TODO see above
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	// TODO audit valid token
+	c.Map(token)
+}
+
+func verifyIssuerToken(c martini.Context, w http.ResponseWriter, token Token, tokenReg *TokenReg) {
+	if !tokenReg.VerifyIssuerPerms(token) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+}
+
+func createToken(w http.ResponseWriter, params martini.Params, issuerToken Token, tokenReg *TokenReg) {
+	tokenName := params["name"]
+	newToken, err := tokenReg.CreateToken(tokenName, issuerToken)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	io.WriteString(w, fmt.Sprint(newToken.ID))
+}
+
+func listTokens(w http.ResponseWriter, tokenReg *TokenReg) {
+	sendJson(w, tokenReg.ListTokens(false))
+}
+
+func listActiveTokens(w http.ResponseWriter, tokenReg *TokenReg) {
+	sendJson(w, tokenReg.ListTokens(true))
+}
+
+func deactivateToken(w http.ResponseWriter, params martini.Params, tokenReg *TokenReg) {
+	tokenId := TokenId(params["id"])
+	oldToken, present := tokenReg.GetTokenById(tokenId)
+	if !present {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	oldToken.Activated = false
+	if err := tokenReg.UpdateToken(tokenId, oldToken); err != nil {
+		// TODO logging/return error details
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+func getToken(w http.ResponseWriter, params martini.Params, tokenReg *TokenReg) {
+	tokenId := TokenId(params["id"])
+	token, present := tokenReg.GetTokenById(tokenId)
+	if !present {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	sendJson(w, token)
+}
+
+func sendJson(w http.ResponseWriter, thing interface{}) {
+	dat, err := json.Marshal(thing)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(dat)
 }
