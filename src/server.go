@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -11,74 +12,78 @@ import (
 	"github.com/go-martini/martini"
 )
 
-type Akyuu struct {
-	FsClient FsClient
+func BuildRoutes(m *martini.ClassicMartini, fsClient *FsClient) {
+	m.Map(fsClient)
+
+	m.Group("/upload", func(uploadRouter martini.Router) {
+		uploadRouter.Post("/i", verifyFileImageEndpoint, receiveFile)
+	}, bindIncomingFile)
+
+	m.Group("/f", func(downloadRouter martini.Router) {
+		downloadRouter.Get("/i/:id", getImage)
+	})
 }
 
-func (a *Akyuu) receiveFile(w http.ResponseWriter, r *http.Request, fileTypeEndpoint fileType) {
-	r.ParseMultipartForm(32 << 20)
+func bindIncomingFile(c martini.Context, w http.ResponseWriter, r *http.Request) {
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	c.Map(file)
+	c.Map(header)
 
-	var fType fileType
-	switch header.Header.Get("Content-Type") {
+	c.Next()
+	file.Close()
+}
+
+func verifyFileCorrectEndpoint(c martini.Context, w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader, endpointType FileType) {
+	var fType FileType
+	switch fileHeader.Header.Get("Content-Type") {
 	case "image/jpeg", "image/png":
-		fType = fileTypeImage
-	case "image/gif":
-		fType = fileTypeGif
-	default:
+		fType = FileTypeImage
+	}
+	if fType != endpointType {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if fType != fileTypeEndpoint {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	c.Map(endpointType)
+}
 
+func verifyFileImageEndpoint(c martini.Context, w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader) {
+	verifyFileCorrectEndpoint(c, w, fileData, fileHeader, FileTypeImage)
+}
+
+func receiveFile(w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader, endpointType FileType, fsClient *FsClient) {
 	var buf bytes.Buffer
-	io.Copy(&buf, file)
-	uid := genFileUID()
-	fileObj := fileObject{
+	io.Copy(&buf, fileData)
+	uid := GenFileUID()
+	fileObj := FileObject{
 		UID:      uid,
-		BasePath: filepath.Join(a.FsClient.StorageDir, fmt.Sprint(fType)),
-		Type:     fType,
-		Filename: string(uid) + header.Filename,
+		BasePath: filepath.Join(fsClient.StorageDir, fmt.Sprint(endpointType)),
+		Type:     endpointType,
+		Filename: string(uid) + fileHeader.Filename,
 	}
-	if err := a.FsClient.writeFile(fileObj, buf); err != nil {
+	if err := fsClient.WriteFile(fileObj, buf); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	io.WriteString(w, fmt.Sprint(fileObj.UID))
 }
 
-func (a *Akyuu) receiveImage(w http.ResponseWriter, r *http.Request) {
-	a.receiveFile(w, r, fileTypeImage)
-}
-
-func (a *Akyuu) getFile(w http.ResponseWriter, r *http.Request, params martini.Params, fileTypeEndpoint fileType) {
+func getFile(w http.ResponseWriter, params martini.Params, fsClient *FsClient, endpointType FileType) {
 	uid := strings.TrimSuffix(params["id"], filepath.Ext(params["id"]))
-	file, present := a.FsClient.getFile(fileUID(uid))
-	if !present || file.Type != fileTypeEndpoint {
-		http.NotFound(w, r)
+	file, present := fsClient.GetFile(FileUID(uid))
+	if !present || file.Type != endpointType {
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if err := file.readIntoWriter(w); err != nil {
+	if err := file.ReadIntoWriter(w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 }
 
-func (a *Akyuu) getImage(w http.ResponseWriter, r *http.Request, params martini.Params) {
-	a.getFile(w, r, params, fileTypeImage)
-}
-
-func (a *Akyuu) BuildRoutes(m *martini.ClassicMartini) {
-	m.Group("/i", func(r martini.Router) {
-		r.Get("/:id", a.getImage)
-		r.Post("", a.receiveImage)
-	})
+func getImage(w http.ResponseWriter, params martini.Params, fsClient *FsClient) {
+	getFile(w, params, fsClient, FileTypeImage)
 }

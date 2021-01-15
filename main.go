@@ -13,11 +13,7 @@ func main() {
 		log.Fatalf("Error loading FS client: %s", err)
 	}
 
-	server := akyuu.Akyuu{
-		FsClient: fsClient,
-	}
-
 	m := martini.Classic()
-	server.BuildRoutes(m)
+	akyuu.BuildRoutes(m, &fsClient)
 	m.Run()
 }

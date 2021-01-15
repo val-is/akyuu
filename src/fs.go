@@ -16,29 +16,30 @@ import (
 // this implementation is more or less a placeholder
 // ideally we'd be using something like s3 to hold files
 
-type fileType int
+type FileType int
 
 const (
-	fileTypeImage fileType = iota
-	fileTypeVideo
-	fileTypeGif
+	FileTypeInvalid FileType = iota
+	FileTypeImage
+	FileTypeVideo
+	FileTypeGif
 )
 
-type fileUID string
+type FileUID string
 
-func genFileUID() fileUID {
-	return fileUID(fmt.Sprint(time.Now().Unix()*10 + rand.Int63()%10))
+func GenFileUID() FileUID {
+	return FileUID(fmt.Sprint(time.Now().Unix()*10 + rand.Int63()%10))
 }
 
-type fileObject struct {
-	UID      fileUID  `json:"file-uid"`
+type FileObject struct {
+	UID      FileUID  `json:"file-uid"`
 	BasePath string   `json:"path"`
-	Type     fileType `json:"file-type"`
+	Type     FileType `json:"file-type"`
 	Filename string   `json:"filename"`
 }
 
-func (f fileObject) readIntoWriter(w io.Writer) error {
-	file, err := os.Open(f.getPath())
+func (f FileObject) ReadIntoWriter(w io.Writer) error {
+	file, err := os.Open(f.GetPath())
 	if err != nil {
 		return err
 	}
@@ -51,8 +52,8 @@ func (f fileObject) readIntoWriter(w io.Writer) error {
 	return nil
 }
 
-func (f fileObject) writeBuffer(buf bytes.Buffer) error {
-	file, err := os.Create(f.getPath())
+func (f FileObject) WriteBuffer(buf bytes.Buffer) error {
+	file, err := os.Create(f.GetPath())
 	if err != nil {
 		return err
 	}
@@ -65,45 +66,45 @@ func (f fileObject) writeBuffer(buf bytes.Buffer) error {
 	return nil
 }
 
-func (f fileObject) getPath() string {
+func (f FileObject) GetPath() string {
 	return filepath.Join(f.BasePath, f.Filename)
 }
 
 type FsClient struct {
 	StorageDir  string                 `json:"storage-dir"`
 	ClientPath  string                 `json:"config-path"`
-	FileListing map[fileUID]fileObject `json:"file-listing"`
+	FileListing map[FileUID]FileObject `json:"file-listing"`
 }
 
 func NewFsClient(fsClientPath string) (FsClient, error) {
 	client := FsClient{
 		ClientPath: fsClientPath,
 	}
-	if err := client.loadFsListing(); err != nil {
+	if err := client.LoadFsListing(); err != nil {
 		return FsClient{}, err
 	}
 	return client, nil
 }
 
-func (f FsClient) getFile(uid fileUID) (fileObject, bool) {
+func (f FsClient) GetFile(uid FileUID) (FileObject, bool) {
 	if fo, ok := f.FileListing[uid]; ok {
 		return fo, true
 	}
-	return fileObject{}, false
+	return FileObject{}, false
 }
 
-func (f *FsClient) writeFile(fo fileObject, buf bytes.Buffer) error {
-	if err := fo.writeBuffer(buf); err != nil {
+func (f *FsClient) WriteFile(fo FileObject, buf bytes.Buffer) error {
+	if err := fo.WriteBuffer(buf); err != nil {
 		return err
 	}
 	f.FileListing[fo.UID] = fo
-	if err := f.dumpFileListing(); err != nil {
+	if err := f.DumpFileListing(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (f *FsClient) loadFsListing() error {
+func (f *FsClient) LoadFsListing() error {
 	file, err := os.Open(f.ClientPath)
 	if err != nil {
 		return err
@@ -120,7 +121,7 @@ func (f *FsClient) loadFsListing() error {
 	return nil
 }
 
-func (f FsClient) dumpFileListing() error {
+func (f FsClient) DumpFileListing() error {
 	m, err := json.Marshal(f)
 	if err != nil {
 		return err
