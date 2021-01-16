@@ -31,17 +31,42 @@ func GenerateTokenId() TokenId {
 }
 
 type TokenReg struct {
-	StoragePath  string    `json:"config-path"`
+	StoragePath  string    `json:"-"`
 	ValidIssuers []TokenId `json:"issuers"`
 	Tokens       []Token   `json:"tokens"`
 }
 
-func NewTokenReg(storagePath string) (TokenReg, error) {
-	reg := TokenReg{
-		StoragePath: storagePath,
-	}
-	if err := reg.Load(); err != nil {
-		return TokenReg{}, err
+const initialIssuerId = "initial-issuer-token"
+
+var defaultTokenReg = TokenReg{
+	ValidIssuers: []TokenId{
+		initialIssuerId,
+	},
+	Tokens: []Token{
+		{
+			Activated: true,
+			ID:        initialIssuerId,
+			Name:      "initial token",
+			Issuer:    initialIssuerId,
+		},
+	},
+}
+
+func NewTokenReg(storagePath string, loadExisting bool) (TokenReg, error) {
+	var reg TokenReg
+	if loadExisting {
+		reg = TokenReg{
+			StoragePath: storagePath,
+		}
+		if err := reg.Load(); err != nil {
+			return TokenReg{}, err
+		}
+	} else {
+		reg = defaultTokenReg
+		reg.StoragePath = storagePath
+		if err := reg.Write(); err != nil {
+			return TokenReg{}, err
+		}
 	}
 	return reg, nil
 }
@@ -152,4 +177,48 @@ func (r *TokenReg) UpdateToken(id TokenId, newToken Token) error {
 		}
 	}
 	return nil
+}
+
+func (r *TokenReg) AddIssuer(id TokenId) (bool, error) {
+	for _, token := range r.ValidIssuers {
+		if token == id {
+			return false, nil
+		}
+	}
+	r.ValidIssuers = append(r.ValidIssuers, id)
+
+	// remove initial token if still present
+	// it would have to be at index zero
+	if _, present := r.GetTokenById(TokenId(initialIssuerId)); present {
+		r.ValidIssuers[0] = r.ValidIssuers[1]
+		r.ValidIssuers = r.ValidIssuers[:len(r.ValidIssuers)-1]
+	}
+
+	if err := r.Write(); err != nil {
+		r.ValidIssuers = r.ValidIssuers[:len(r.ValidIssuers)-1]
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *TokenReg) RemoveIssuer(id TokenId) (bool, error) {
+	if len(r.ValidIssuers) == 1 {
+		return false, fmt.Errorf("cannot remove all issuer tokens")
+	}
+	tokenIndex := -1
+	for k, token := range r.ValidIssuers {
+		if token == id {
+			tokenIndex = k
+		}
+	}
+	if tokenIndex == -1 {
+		return false, nil
+	}
+	r.ValidIssuers[tokenIndex] = r.ValidIssuers[len(r.ValidIssuers)-1]
+	r.ValidIssuers = r.ValidIssuers[:len(r.ValidIssuers)-1]
+	if err := r.Write(); err != nil {
+		r.ValidIssuers = append(r.ValidIssuers, id)
+		return false, err
+	}
+	return true, nil
 }

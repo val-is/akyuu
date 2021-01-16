@@ -28,6 +28,8 @@ func BuildRoutes(m *martini.ClassicMartini) {
 			tokenRouter.Get("/active", listActiveTokens)
 			tokenRouter.Post("/:name", createToken)
 			tokenRouter.Post("/deactivate/:id", deactivateToken)
+			tokenRouter.Post("/op/:id", opToken)
+			tokenRouter.Post("/deop/:id")
 		}, verifyIssuerToken)
 	}, verifyToken)
 
@@ -188,6 +190,38 @@ func getToken(w http.ResponseWriter, params martini.Params, tokenReg *TokenReg) 
 		return
 	}
 	sendJson(w, token)
+}
+
+func opToken(w http.ResponseWriter, params martini.Params, tokenReg *TokenReg) {
+	tokenId := TokenId(params["id"])
+	_, present := tokenReg.GetTokenById(tokenId)
+	if !present {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if added, err := tokenReg.AddIssuer(tokenId); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	} else if !added {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+}
+
+func deopToken(w http.ResponseWriter, params martini.Params, tokenReg *TokenReg) {
+	tokenId := TokenId(params["id"])
+	_, present := tokenReg.GetTokenById(tokenId)
+	if !present {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if deoped, err := tokenReg.RemoveIssuer(tokenId); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	} else if !deoped {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 }
 
 func sendJson(w http.ResponseWriter, thing interface{}) {

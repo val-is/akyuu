@@ -23,6 +23,8 @@ const (
 	FileTypeImage
 	FileTypeVideo
 	FileTypeGif
+
+	NFileTypes int = iota
 )
 
 type FileUID string
@@ -71,17 +73,25 @@ func (f FileObject) GetPath() string {
 }
 
 type FsClient struct {
-	StorageDir  string                 `json:"storage-dir"`
-	ClientPath  string                 `json:"config-path"`
+	StorageDir  string                 `json:"-"`
+	ClientPath  string                 `json:"-"`
 	FileListing map[FileUID]FileObject `json:"file-listing"`
 }
 
-func NewFsClient(fsClientPath string) (FsClient, error) {
+func NewFsClient(fsListingPath, storageDir string, loadExisting bool) (FsClient, error) {
 	client := FsClient{
-		ClientPath: fsClientPath,
+		ClientPath: fsListingPath,
+		StorageDir: storageDir,
 	}
-	if err := client.LoadFsListing(); err != nil {
-		return FsClient{}, err
+	if loadExisting {
+		if err := client.LoadFsListing(); err != nil {
+			return FsClient{}, err
+		}
+	} else {
+		client.FileListing = make(map[FileUID]FileObject)
+		if err := client.DumpFileListing(); err != nil {
+			return FsClient{}, err
+		}
 	}
 	return client, nil
 }

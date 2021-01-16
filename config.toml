@@ -1,0 +1,6 @@
+[fsdb]
+    storage_dir = "akyuu/data"
+    listing_path = "akyuu/fslisting.json"
+
+[tokenreg]
+    token_path = "akyuu/tokens.json"
