@@ -18,6 +18,8 @@ func BuildRoutes(m *martini.ClassicMartini) {
 	m.Group("/api", func(apiRouter martini.Router) {
 		apiRouter.Group("/upload", func(uploadRouter martini.Router) {
 			uploadRouter.Post("/i", verifyFileImageEndpoint, receiveFile)
+			uploadRouter.Post("/g", verifyFileGifEndpoint, receiveFile)
+			uploadRouter.Post("/v", verifyFileVideoEndpoint, receiveFile)
 		}, bindIncomingFile)
 
 		apiRouter.Group("/token", func(tokenRouter martini.Router) {
@@ -32,6 +34,8 @@ func BuildRoutes(m *martini.ClassicMartini) {
 	// file serving/public access
 	m.Group("/f", func(downloadRouter martini.Router) {
 		downloadRouter.Get("/i/:id", getImage)
+		downloadRouter.Get("/g/:id", getGif)
+		downloadRouter.Get("/v/:id", getVideo)
 	})
 }
 
@@ -51,8 +55,12 @@ func bindIncomingFile(c martini.Context, w http.ResponseWriter, r *http.Request)
 func verifyFileCorrectEndpoint(c martini.Context, w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader, endpointType FileType) {
 	var fType FileType
 	switch fileHeader.Header.Get("Content-Type") {
-	case "image/jpeg", "image/png":
+	case "image/jpeg", "image/jpg", "image/png":
 		fType = FileTypeImage
+	case "image/gif":
+		fType = FileTypeGif
+	case "video/mpeg", "video/webm":
+		fType = FileTypeVideo
 	}
 	if fType != endpointType {
 		w.WriteHeader(http.StatusBadRequest)
@@ -63,6 +71,14 @@ func verifyFileCorrectEndpoint(c martini.Context, w http.ResponseWriter, fileDat
 
 func verifyFileImageEndpoint(c martini.Context, w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader) {
 	verifyFileCorrectEndpoint(c, w, fileData, fileHeader, FileTypeImage)
+}
+
+func verifyFileGifEndpoint(c martini.Context, w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader) {
+	verifyFileCorrectEndpoint(c, w, fileData, fileHeader, FileTypeGif)
+}
+
+func verifyFileVideoEndpoint(c martini.Context, w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader) {
+	verifyFileCorrectEndpoint(c, w, fileData, fileHeader, FileTypeVideo)
 }
 
 func receiveFile(w http.ResponseWriter, fileData multipart.File, fileHeader *multipart.FileHeader, endpointType FileType, fsClient *FsClient) {
@@ -97,6 +113,14 @@ func getFile(w http.ResponseWriter, params martini.Params, fsClient *FsClient, e
 
 func getImage(w http.ResponseWriter, params martini.Params, fsClient *FsClient) {
 	getFile(w, params, fsClient, FileTypeImage)
+}
+
+func getGif(w http.ResponseWriter, params martini.Params, fsClient *FsClient) {
+	getFile(w, params, fsClient, FileTypeGif)
+}
+
+func getVideo(w http.ResponseWriter, params martini.Params, fsClient *FsClient) {
+	getFile(w, params, fsClient, FileTypeVideo)
 }
 
 func verifyToken(c martini.Context, w http.ResponseWriter, r *http.Request, tokenReg *TokenReg) {
